@@ -1,0 +1,209 @@
+---
+title: "HW2_STAT600"
+author: "Katy Miles"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+## Problem 1
+
+### a)
+
+$$l(\theta) = -\sum^n_{i=1}log(\pi(1 + (x_i - \theta)^2))$$
+
+$$l'(\theta) = 2\sum^n_{i=1}\frac{1}{\pi(1 + (x_i - \theta)^2)}(x_i - \theta)$$
+
+```{r}
+library(tidyverse)
+library(Rcpp)
+
+data = c(8.86, -6.82, -4.03, -2.84, 0.14, 0.19, 0.24, 0.27, 0.49, 0.62, 0.76, 1.09,
+1.18, 1.32, 1.36, 1.58, 1.58, 1.78, 2.13, 2.15, 2.36, 4.05, 4.11, 4.12,
+6.83)
+
+loglike_grad = function(theta, data) {
+  return(2*sum((data - theta) / (pi*( 1 + (data - theta)^2))))
+}
+
+theta = seq(-5, 5, 0.001)
+output = sapply(theta, loglike_grad, data = data)
+
+ggplot() + 
+  geom_line(aes(theta, output)) + 
+  xlab("Theta") + 
+  ylab("Gradient")+ 
+  theme_minimal() 
+```
+
+### b)
+
+Derivation of Fisher information for Fisher method:
+
+$$I(\theta)=  nE_{\theta}[2\frac{1}{\pi(1 + (x_i - \theta)^2)}(x_i - \theta)]^2$$
+
+$$= 4nE_{\theta}[\frac{1}{\pi(1 + (x_i - \theta)^2)}(x_i - \theta)]^2$$
+
+$$= 4n\int^{\infty}_{-\infty}[\frac{1}{\pi(1 + (x_i - \theta)^2)}(x_i - \theta)]^2d\theta$$
+
+$$= $$
+
+```{Rcpp}
+#include <Rcpp.h>
+using namespace Rcpp;
+
+// helper function 
+namespace helper {
+  double loglike_grad(double theta, NumericVector data) {
+    double pi = 3.14159265; 
+    return 2*sum((data - theta) / (pi*(1 + pow(data - theta, 2))));
+  }
+
+  double loglike_grad2(double theta, NumericVector data) {
+    double pi = 3.14159265;
+    double first =4*sum(pow(data - theta, 2) / 
+                        pow(pi*(1 + pow(data - theta, 2)), 2));
+    double second = -2*sum(1 / (pi*(1 + pow(data - theta, 2))));
+    return first + second;
+  }
+
+  double fisherInfo(double theta, NumericVector data) {
+    return 0;
+  }
+    
+
+}
+
+// Bisection method
+//[[Rcpp::export]]
+List bisection (NumericVector data, double a, double b, double epsilon) {
+  for (int i = 0; i < 1000; i++) {
+    double x = (a + b) / 2;
+    // Updating equations
+    double grad_eval = helper::loglike_grad(x, data)*helper::loglike_grad(a, data);
+    if (grad_eval <= 0) {
+      b = x;
+    } else {
+      a = x;
+    }
+    // Stoping criteria
+    if (abs((((a + b) / 2) - x) / (a + b) / 2) < epsilon) {
+      return List::create((a + b) / 2, i);
+    }
+  }
+  return List::create((a + b) / 2, 1000);
+}
+
+// Newton-Raphson
+//[[Rcpp::export]]
+List newtonRaphson (NumericVector data, NumericVector x, double epsilon, 
+                    Rcpp::Function loglike_grad, Rcpp::Function loglike_grad2) {
+  for (int i = 0; i < 1000; i++) {
+    // Updating equations
+    double h = -loglike_grad(x, data)/loglike_grad2(x, data);
+    // Stopping criteria
+    if (abs(((x + h) - x) / (x + h)) < epsilon) {
+      return List::create(x + h, i);
+    }
+    // Updating equation
+    x = x + h;
+  }
+  return List::create(x, 1000);
+}
+
+// Fisher Scoring
+
+// Secant Method
+//[[Rcpp::export]]
+List secant (NumericVector data, double x_0, double x_1, double epsilon) {
+  for (int i = 0; i < 1000; i++) {
+    // Updating equations
+    double prev = x_1;
+    x_1 = x_1 - helper::loglike_grad(x_1, data)*(x_1 - x_0) / (helper::loglike_grad(x_1, data) - helper::loglike_grad(x_0, data));
+    x_0 = prev;
+    // Stopping criteria
+    if (abs((x_1 - x_0) / x_1) < epsilon) {
+      return List::create(x_1, i);
+    }
+  }
+  return List::create(x_1, 1000);
+}
+```
+
+```{r}
+bisection_output = bisection(data, -5, 5, .0001)
+newtonRaphson_output = newtonRaphson(data, 1, .0001)
+secant_output = secant(data, .5, 1, .0001)
+```
+
+### c)
+```{r}
+library(knitr)
+library(kableExtra)
+table = t(matrix(data = c("Bisection", unlist(bisection_output), 
+                "Newton Raphson", unlist(newtonRaphson_output),
+                "Secant", unlist(secant_output)), nrow = 3))
+
+kable(table, "latex", digits = 5, booktabs = TRUE, col.names = c("Method", "$\\hat\\theta$", "Iterations")) %>%
+    kable_styling(latex_options = "HOLD_position")
+```
+
+### d)
+
+For my convergence criteria, I used the relative convergence criterion for which $\frac{|x^{(t+1)} - x^{(t)}|}{|x^{(t)}|} < \epsilon$. I chose $\epsilon = 0.0001$ for all methods. I chose the relative convergence criteria in order to correct for the scale of x. 
+
+### e)
+
+The secant method appears to be the best, as 
+
+### f)
+
+I chose to initialize the methods based off of plot in part a). A root looked to be around 1, so I used 1 as my initialization value. For the secant method, I chose to use 0.5 and 1 as my initial values, again based off of the visual of the gradient. The results may be sensitive to the initialization value if for instace......
+
+
+### g)
+
+```{r}
+new_data = c(-8.34, -1.73, -0.40, -0.24, 0.60, 0.94, 1.05, 1.06, 1.45, 1.50,
+1.54, 1.72, 1.74, 1.88, 2.04, 2.16, 2.39, 3.01, 3.01, 3.08,
+4.66, 4.99, 6.01, 7.06, 25.45, data)
+
+theta = seq(-10, 10, 0.001)
+output = sapply(theta, loglike_grad, data = new_data)
+
+ggplot() + 
+  geom_line(aes(theta, output)) + 
+  xlab("Theta") + 
+  ylab("Gradient")+ 
+  theme_minimal()
+
+bisection_output = bisection(new_data, -5, 5, .0001)
+newtonRaphson_output = newtonRaphson(new_data, 1, .0001)
+secant_output = secant(new_data, 0, 1, .0001)
+
+table = t(matrix(data = c("Bisection", unlist(bisection_output), 
+                "Newton Raphson", unlist(newtonRaphson_output),
+                "Secant", unlist(secant_output)), nrow = 3))
+
+kable(table, "latex", digits = 5, booktabs = TRUE, col.names = c("Method", "$\\hat\\theta$", "Iterations")) %>%
+    kable_styling(latex_options = "HOLD_position")
+```
+
+## Problem 2
+
+
+## Problem 3
+
+### a)
+
+$$l(\beta_0, \beta_1, \beta_2) = \sum^n_{i=1}log(\frac{n!}{y_i!(n-y_i)!}(\frac{exp(\beta_0 + \beta_1x_{i1} + \beta_2x_{i2})}{1 + exp(\beta_0 + \beta_1x_{i1} + \beta_2x_{i2}) })^{y_i}(1 - \frac{exp(\beta_0 + \beta_1x_{i1} + \beta_2x_{i2})}{1 + exp(\beta_0 + \beta_1x_{i1} + \beta_2x_{i2}) })^{n-y_i}$$
+
+$$= \sum^n_{i=1}[log(\frac{n!}{y_i!(n-y_i)!}) + y_i(\beta_0 + \beta_1x_{i1} + \beta_2x_{i2}) - y_ilog({1 + exp(\beta_0 + \beta_1x_{i1} + \beta_2x_{i2}) }) + (n-y_i)log(1 - \frac{exp(\beta_0 + \beta_1x_{i1} + \beta_2x_{i2})}{1 + exp(\beta_0 + \beta_1x_{i1} + \beta_2x_{i2}) })]$$
+
+### b
+```{r}
+
+```
