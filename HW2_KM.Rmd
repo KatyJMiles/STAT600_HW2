@@ -49,20 +49,6 @@ $$l'(\theta) = 2\sum^n_{i=1}\frac{1}{(1 + (x_i - \theta)^2)}(x_i - \theta)$$
 $$l''(\theta) = -2\sum^n_{i=1}\frac{1}{(1 + (x_i - \theta)^2)} + 4\sum^n_{i=1}\frac{(x_i - \theta)^2}{((1 + (x_i - \theta)^2))^2}$$
 
 
-Derivation of Fisher information for Fisher method:
-
-$$I(\theta)=  nE_{\theta}[2\frac{1}{\pi(1 + (x_i - \theta)^2)}(x_i - \theta)]^2$$
-
-$$= 4nE_{\theta}[\frac{1}{\pi(1 + (x_i - \theta)^2)}(x_i - \theta)]^2$$
-
-$$= 4n\int^{\infty}_{-\infty}[\frac{1}{\pi(1 + (x_i - \theta)^2)}(x_i - \theta)]^2dx$$
-
-Let $y_i = x_i - \theta$, $\frac{d}{dy} = \frac{d}{dx}$
-
-$$= 4n\int^{\infty}_{-\infty}[\frac{1}{\pi(1 + (y_i)^2)}(y_i)]^2dy$$
-
-$$= 4n\int^{\infty}_{-\infty}[\frac{y_i^2}{\pi(1 + (y_i)^2)}]^2dx$$
-
 ```{Rcpp}
 #include <Rcpp.h>
 using namespace Rcpp;
@@ -74,7 +60,7 @@ namespace helper {
   }
 
   double loglike_grad2(double theta, NumericVector data) {
-    double first =4*sum(pow(data - theta, 2) 
+    double first = 4*sum(pow(data - theta, 2) 
                        / pow((1 + pow(data - theta, 2)), 2));
     double second = -2*sum(1 / ((1 + pow(data - theta, 2))));
     return first + second;
@@ -152,10 +138,9 @@ List secant (NumericVector data, double x_0, double x_1, double epsilon) {
 
 ```{r}
 bisection_output = bisection(data, -5, 5, .0001)
-newtonRaphson_output = newtonRaphson(data, 3, .0001)
+newtonRaphson_output = newtonRaphson(data, 1, .0001)
 secant_output = secant(data, 0, 1, .0001)
 fisher_output = fisher(data, 1, .0001)
-loglike_grad2(1.18e+78, data)
 ```
 
 ### c)
@@ -167,26 +152,39 @@ table = t(matrix(data = c("Bisection", unlist(bisection_output),
                 "Secant", unlist(secant_output),
                 "Fisher", unlist(fisher_output)), nrow = 3))
 
-kable(table, "latex", digits = 5, booktabs = TRUE, col.names = c("Method", "$\\hat\\theta$", "Iterations")) %>%
+kable(table, "latex", digits = 5, booktabs = TRUE, col.names = c("Method", "Estimate", "Iterations")) %>%
     kable_styling(latex_options = "HOLD_position")
 ```
 
 ### d)
 
-For my convergence criteria, I used the relative convergence criterion for which $\frac{|x^{(t+1)} - x^{(t)}|}{|x^{(t)}|} < \epsilon$. I chose $\epsilon = 0.0001$ for all methods. I chose the relative convergence criteria in order to correct for the scale of x. 
+For my convergence criteria, I used the absolute convergence criterion for which $\|x^{(t+1)} - x^{(t)}| < \epsilon$. I chose $\epsilon = 0.0001$ for all methods. 
 
 ### e)
 
-The secant method appears to be the best, as 
+```{Rcpp}
+#include <Rcpp.h>
+using namespace Rcpp;
+
+//[[Rcpp::export]]
+double loglike_grad2(double theta, NumericVector data) {
+  double first = 4*sum(pow(data - theta, 2) 
+                     / pow((1 + pow(data - theta, 2)), 2));
+  double second = -2*sum(1 / ((1 + pow(data - theta, 2))));
+  return first + second;
+}
+```
 
 ```{r}
-sd(table[,2])
+est_hessian = loglike_grad2(newtonRaphson_output[[1]], data)
+se = sqrt(-1/est_hessian)
 ```
+
+The best estimate of $\theta$ is 1.188 and the standard error is 0.281.
 
 ### f)
 
-I chose to initialize the methods based off of plot in part a). A root looked to be around 1, so I used 1 as my initialization value. For the secant method, I chose to use 0.5 and 1 as my initial values, again based off of the visual of the gradient. The results may be sensitive to the initialization value if for instace......
-
+I chose to initialize the methods based off of plot in part a). A root looked to be around 1, so I used 1 as my initialization value. For the secant method, I chose to use 0.5 and 1 as my initial values, again based off of the visual of the gradient. The results may be sensitive to the initialization value if for instance for the bisection method, the initial bounds do not include the root. There could also be an issue of getting stuck in a local maximum depending on the initialization value. 
 
 ### g)
 
@@ -198,11 +196,6 @@ new_data = c(-8.34, -1.73, -0.40, -0.24, 0.60, 0.94, 1.05, 1.06, 1.45, 1.50,
 theta = seq(-10, 10, 0.001)
 output = sapply(theta, loglike_grad, data = new_data)
 
-ggplot() + 
-  geom_line(aes(theta, output)) + 
-  xlab("Theta") + 
-  ylab("Gradient")+ 
-  theme_minimal()
 
 bisection_output = bisection(new_data, -5, 5, .0001)
 newtonRaphson_output = newtonRaphson(new_data, 1, .0001)
@@ -213,11 +206,46 @@ table = t(matrix(data = c("Bisection", unlist(bisection_output),
                 "Newton Raphson", unlist(newtonRaphson_output),
                 "Secant", unlist(secant_output)), nrow = 3))
 
-kable(table, "latex", digits = 5, booktabs = TRUE, col.names = c("Method", "$\\hat\\theta$", "Iterations")) %>%
+kable(table, "latex", digits = 5, booktabs = TRUE, col.names = c("Method", "Estimate", "Iterations")) %>%
     kable_styling(latex_options = "HOLD_position")
+
+est_hessian = loglike_grad2(newtonRaphson_output[[1]], data)
+se = sqrt(-1/est_hessian)
 ```
 
+With the updated data, the best estimate of $\theta$ is 1.47 with a standard error of 0.285.
+
 ## Problem 2
+
+We want to prove that the convergence rate for 2 steps of the secant method is better than the convergence rate for 1 step of the Newton Raphson method. 
+
+First, we will find the convergence rate for 1 step of the Newton Raphson method:
+
+We note that a method has a convergence of order $\beta$ if $lim_{t -> \infty}\epsilon^{(t)} = 0$ and $lim_{t -> \infty}\frac{|\epsilon^{(t + 1)|}}{|\epsilon^{(t)}|^\beta} = c$
+
+For Newton's algorithm, we have $\frac{|\epsilon^{(t + 1)|}}{|\epsilon^{(t)}|^2} = \frac{g''(q)}{2g''(x^{(t)})}$ with the right hand converging to $\frac{g''(x^*)}{2g''(x^{*})}$. Therefore, Newton's method has quadratic convergence $(\beta = 2)$.
+
+Now, we will find the convergence rate for 2 steps of the secant method:
+
+Form derivations shown in the Givens and Hoeting, we find that,
+
+$$\epsilon^{(t + 1)} \approx d^{(t)}\epsilon^{(t)}\epsilon^{(t - 1)}$$
+
+Thus, $\epsilon^{(t + 2)} \approx d^{(t)}d^{(t)}\epsilon^{(t)}\epsilon^{(t - 1)}\epsilon^{(t)}$, where $d^{(t)} \to \frac{g''(x^*)}{2g''(x^*)} = d$ as $t \to \infty$.
+
+Now, to find the order of convergence for two steps of the secant method, we find $\beta$ for which 
+
+$$lim_{t -> \infty}\frac{|\epsilon^{(t + 2)|}}{|\epsilon^{(t)}|^\beta} = c$$
+
+$$lim_{t -> \infty}\frac{|\epsilon^{(t + 2)|}}{|\epsilon^{(t)}|^\beta} = c$$
+
+After rearranging terms and leaving $\epsilon^{(t + 2)} \approx d^{(t)}d^{(t)}\epsilon^{(t)}\epsilon^{(t - 1)}\epsilon^{(t)}$ only in terms of $\epsilon^{(t)}$, we obtain
+
+$$lim_{t \to \infty}|\epsilon^{(t)}|^{-\beta + 1/\beta + 2} = \frac{c^{1 + 1/\beta}}{d^2}$$
+
+Solving $2 - \beta + 1/\beta = 0$, we get $\beta = 2 + \frac{\sqrt{8}}{2} \approx 3.414214$.
+
+Thus, we see that the convergence rate for 2 steps of the secant method is better than the convergence rate for 1 step of the Newton Raphson method.
 
 
 ## Problem 3
@@ -253,50 +281,27 @@ using namespace Rcpp;
 using namespace arma;
 
 namespace helper{
-  colvec loglike_grad(colvec theta, mat data, colvec y) {
-      colvec grad = trans(x)*(y - (exp(x*theta) / (1 + exp(x*theta))))
-      return grad;
+  colvec loglike_grad(colvec theta, mat x, colvec y) {
+        colvec grad = trans(x)*(y - (exp(x*theta) / (1 + exp(x*theta))));
+        return grad;
   }
   
-  mat hessian(colvec theta, mat data) {
-      vec data_vec = data.col(0);
-      int n = data_vec.size();
-      Rcout << n << "\n";
-
-      colvec grad = colvec(9);
-      mat toReturn = mat(3, 3);
-      for (int i = 0; i < n; i++) {
-          double exp_part = std::exp(theta[0] + theta[1]*data(i,1) + theta[2]*data(i,2));
-          Rcout << exp(theta[0] + theta[1]*data(i,1) + theta[2]*data(i,2))<< "\n";
-
-          grad[0] = grad[0] - std::log((exp_part / pow(1 + exp_part, 2)));  
-          grad[1] = grad[1] - std::log((data(i,1)*exp_part / pow(1 + exp_part, 2)));
-          grad[2] = grad[2] - std::log((data(i,2)*exp_part / pow(1 + exp_part, 2)));
-          grad[3] = grad[1];
-          grad[4] = grad[4] - std::log((pow(data(i,1), 2)*exp_part / pow(1 + exp_part, 2)));
   
-          grad[5] = grad[5] - std::log((data(i,2)*data(i, 1)*exp_part / pow(1 + exp_part, 2))) ;
-  
-          grad[6] = grad[2];
-          grad[7] = grad[5];
-          grad[8] = grad[8] - (pow(data(i,2), 2)*exp_part / pow(1 + exp_part, 2));
-      }
-      std::copy(grad.begin(), grad.end(), toReturn.begin());
-      return toReturn;
+  mat hessian(colvec theta, mat x, colvec y) {
+        mat grad = trans(x)*(-diagmat(exp(x*theta) / pow(1 + exp(x*theta), 2)))*x;
+        return grad;
   }
 }
 
 
 // Newton-Raphson
 //[[Rcpp::export]]
-List newtonRaphson (mat data, colvec x, double epsilon) {
+List newtonRaphson (mat data, colvec y, colvec x, double epsilon) {
   for (int i = 0; i < 1000; i++) {
     // Updating equations
-    colvec grad = helper::loglike_grad(x, data);
-    mat grad2 = helper::hessian(x, data);
+    colvec grad = helper::loglike_grad(x, data, y);
+    mat grad2 = helper::hessian(x, data, y);
     colvec h = inv(grad2)*grad;
-    Rcout << h << "\n";
-    Rcout << grad2 << "\n";
     // Stopping criteria
     double D = sum(abs(((x - h) - x)));
     if (D < epsilon) {
@@ -307,28 +312,6 @@ List newtonRaphson (mat data, colvec x, double epsilon) {
   }
   return List::create(x, 1000);
 }
-```
-
-```{Rcpp}
-#include <RcppArmadillo.h>
-// [[Rcpp::depends(RcppArmadillo)]]
-using namespace Rcpp;
-using namespace arma;
-
-//[[Rcpp::export]]
-colvec loglike_grad(colvec theta, mat x, colvec y) {
-      colvec grad = trans(x)*(y - (exp(x*theta) / (1 + exp(x*theta))));
-      return grad;
-}
-
-
-//[[Rcpp::export]]
-mat hessian(colvec theta, mat x, colvec y) {
-      mat grad = trans(x)*(-(exp(x*theta) / pow(1 + exp(x*theta), 2)))*x;
-      return grad;
-}
-
-
 ```
 
 
@@ -346,11 +329,76 @@ rep(1, 59), rep(0, 211-59), rep(1, 53), rep(0, 133-53), rep(1, 28), rep(0,76-28)
 
 data = matrix(c(rep(1, 1010),coffee, gender), ncol = 3)
 
+# Call Newton-Raphson
+newton_output = newtonRaphson(data, y, c(0,0,0), .0000001)
+table = matrix(data = c(unlist(newton_output)), ncol = 4)
 
-loglike_grad(c(0,0,0), data, y)
-hessian(c(0,0,0), data, y)
+kable(table, "latex", digits = 5, booktabs = TRUE, 
+      col.names = c("Beta_0 Estimate",
+                    "Beta_1 Estimate",
+                    "Beta_2 Estiamte", 
+                    "Iterations")) %>%
+    kable_styling(latex_options = "HOLD_position")
 
 ```
 
+### c)
 
+```{r}
+# Find probability of cancer for males and female 
+p = c(rep(9/41, 41), rep(94/213,213), rep(53/127,127), rep(60/142,142),
+      rep(11/67, 67), rep(59/211,211), rep(53/133,133), rep(28/76, 76))
+
+est_p = function(x1, x2) {
+  exp_part = exp(newton_output[[1]][1,] + 
+               newton_output[[1]][2,]*x1 + newton_output[[1]][3,]*x2)
+  return(exp_part / (1 + exp_part))
+}
+
+# Get estimated probabilities
+estimates = est_p(coffee, gender)
+
+ggplot() +
+  geom_point(aes(coffee, p, color = factor(gender))) + 
+  geom_line(aes(coffee, estimates, color = factor(gender))) + 
+  theme_minimal() + 
+  ggtitle("Coffee Consumption vs. Probability of Cancer") + 
+  xlab("Amount of Coffee Consumed") + 
+  ylab("Probability of Cancer") + 
+  guides(color=guide_legend(title="Gender")) + 
+  scale_color_discrete(labels = c("Male", "Female"))
+
+```
+
+### d)
+
+```{Rcpp}
+#include <RcppArmadillo.h>
+// [[Rcpp::depends(RcppArmadillo)]]
+using namespace Rcpp;
+using namespace arma;
+
+//[[Rcpp::export]]
+mat hessian(colvec theta, mat x, colvec y) {
+      mat grad = trans(x)*(-diagmat(exp(x*theta) / pow(1 + exp(x*theta), 2)))*x;
+      return grad;
+}
+```
+
+```{r}
+# Compute hessian
+est_hessian = hessian(newton_output[[1]], data, y)
+se = diag(sqrt(diag(solve(-est_hessian))))
+
+upper = newton_output[[1]] + 1.96*diag(se)
+lower = newton_output[[1]] - 1.96*diag(se)
+table = data.frame(matrix(data = c(lower, upper), ncol = 2))
+rownames(table) = c("Beta_0", "Beta_1", "Beta_2")
+
+kable(table, "latex", digits = 5, booktabs = TRUE, 
+      col.names = c("Lower Bound", "Upper Bound")) %>%
+    kable_styling(latex_options = "HOLD_position")
+```
+
+We see that all parameter estimates are significantly different from 0 with $\alpha = 0.05$, as none of the confidence intervals contain 0.
 
