@@ -15,18 +15,18 @@ knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
 
 $$l(\theta) = -\sum^n_{i=1}log(\pi(1 + (x_i - \theta)^2))$$
 
-$$l'(\theta) = 2\sum^n_{i=1}\frac{1}{\pi(1 + (x_i - \theta)^2)}(x_i - \theta)$$
+$$l'(\theta) = 2\sum^n_{i=1}\frac{1}{(1 + (x_i - \theta)^2)}(x_i - \theta)$$
 
 ```{r}
 library(tidyverse)
 library(Rcpp)
 
-data = c(8.86, -6.82, -4.03, -2.84, 0.14, 0.19, 0.24, 0.27, 0.49, 0.62, 0.76, 1.09,
+data = c(-8.86, -6.82, -4.03, -2.84, 0.14, 0.19, 0.24, 0.27, 0.49, 0.62, 0.76, 1.09,
 1.18, 1.32, 1.36, 1.58, 1.58, 1.78, 2.13, 2.15, 2.36, 4.05, 4.11, 4.12,
 6.83)
 
 loglike_grad = function(theta, data) {
-  return(2*sum((data - theta) / (pi*( 1 + (data - theta)^2))))
+  return(2*sum((data - theta) / (( 1 + (data - theta)^2))))
 }
 
 theta = seq(-5, 5, 0.001)
@@ -37,9 +37,17 @@ ggplot() +
   xlab("Theta") + 
   ylab("Gradient")+ 
   theme_minimal() 
+
 ```
 
 ### b)
+
+Derivation of $l''(\theta)$ for Newton-Raphson:
+
+$$l'(\theta) = 2\sum^n_{i=1}\frac{1}{(1 + (x_i - \theta)^2)}(x_i - \theta)$$
+
+$$l''(\theta) = -2\sum^n_{i=1}\frac{1}{(1 + (x_i - \theta)^2)} + 4\sum^n_{i=1}\frac{(x_i - \theta)^2}{((1 + (x_i - \theta)^2))^2}$$
+
 
 Derivation of Fisher information for Fisher method:
 
@@ -47,9 +55,13 @@ $$I(\theta)=  nE_{\theta}[2\frac{1}{\pi(1 + (x_i - \theta)^2)}(x_i - \theta)]^2$
 
 $$= 4nE_{\theta}[\frac{1}{\pi(1 + (x_i - \theta)^2)}(x_i - \theta)]^2$$
 
-$$= 4n\int^{\infty}_{-\infty}[\frac{1}{\pi(1 + (x_i - \theta)^2)}(x_i - \theta)]^2d\theta$$
+$$= 4n\int^{\infty}_{-\infty}[\frac{1}{\pi(1 + (x_i - \theta)^2)}(x_i - \theta)]^2dx$$
 
-$$= $$
+Let $y_i = x_i - \theta$, $\frac{d}{dy} = \frac{d}{dx}$
+
+$$= 4n\int^{\infty}_{-\infty}[\frac{1}{\pi(1 + (y_i)^2)}(y_i)]^2dy$$
+
+$$= 4n\int^{\infty}_{-\infty}[\frac{y_i^2}{\pi(1 + (y_i)^2)}]^2dx$$
 
 ```{Rcpp}
 #include <Rcpp.h>
@@ -58,23 +70,15 @@ using namespace Rcpp;
 // helper function 
 namespace helper {
   double loglike_grad(double theta, NumericVector data) {
-    double pi = 3.14159265; 
-    return 2*sum((data - theta) / (pi*(1 + pow(data - theta, 2))));
+    return 2*sum((data - theta) / ((1 + pow(data - theta, 2))));
   }
 
   double loglike_grad2(double theta, NumericVector data) {
-    double pi = 3.14159265;
-    double first =4*sum(pow(data - theta, 2) / 
-                        pow(pi*(1 + pow(data - theta, 2)), 2));
-    double second = -2*sum(1 / (pi*(1 + pow(data - theta, 2))));
+    double first =4*sum(pow(data - theta, 2) 
+                       / pow((1 + pow(data - theta, 2)), 2));
+    double second = -2*sum(1 / ((1 + pow(data - theta, 2))));
     return first + second;
   }
-
-  double fisherInfo(double theta, NumericVector data) {
-    return 0;
-  }
-    
-
 }
 
 // Bisection method
@@ -90,7 +94,7 @@ List bisection (NumericVector data, double a, double b, double epsilon) {
       a = x;
     }
     // Stoping criteria
-    if (abs((((a + b) / 2) - x) / (a + b) / 2) < epsilon) {
+    if (abs((((a + b) / 2) - x)) < epsilon) {
       return List::create((a + b) / 2, i);
     }
   }
@@ -99,13 +103,11 @@ List bisection (NumericVector data, double a, double b, double epsilon) {
 
 // Newton-Raphson
 //[[Rcpp::export]]
-List newtonRaphson (NumericVector data, NumericVector x, double epsilon, 
-                    Rcpp::Function loglike_grad, Rcpp::Function loglike_grad2) {
+List newtonRaphson (NumericVector data, double x, double epsilon) {
   for (int i = 0; i < 1000; i++) {
-    // Updating equations
-    double h = -loglike_grad(x, data)/loglike_grad2(x, data);
+    double h = -helper::loglike_grad(x, data)/helper::loglike_grad2(x, data);
     // Stopping criteria
-    if (abs(((x + h) - x) / (x + h)) < epsilon) {
+    if (abs(((x + h) - x)) < epsilon) {
       return List::create(x + h, i);
     }
     // Updating equation
@@ -115,6 +117,20 @@ List newtonRaphson (NumericVector data, NumericVector x, double epsilon,
 }
 
 // Fisher Scoring
+//[[Rcpp::export]]
+List fisher (NumericVector data, double x, double epsilon) {
+  for (int i = 0; i < 1000; i++) {
+    // Updating equations
+    double h = 2*helper::loglike_grad(x, data)/data.size();
+    // Stopping criteria
+    if (abs(((x + h) - x)) < epsilon) {
+      return List::create(x + h, i);
+    }
+    // Updating equation
+    x = x + h;
+  }
+  return List::create(x, 1000);
+}
 
 // Secant Method
 //[[Rcpp::export]]
@@ -125,7 +141,7 @@ List secant (NumericVector data, double x_0, double x_1, double epsilon) {
     x_1 = x_1 - helper::loglike_grad(x_1, data)*(x_1 - x_0) / (helper::loglike_grad(x_1, data) - helper::loglike_grad(x_0, data));
     x_0 = prev;
     // Stopping criteria
-    if (abs((x_1 - x_0) / x_1) < epsilon) {
+    if (abs(x_1 - x_0) < epsilon) {
       return List::create(x_1, i);
     }
   }
@@ -133,10 +149,13 @@ List secant (NumericVector data, double x_0, double x_1, double epsilon) {
 }
 ```
 
+
 ```{r}
 bisection_output = bisection(data, -5, 5, .0001)
-newtonRaphson_output = newtonRaphson(data, 1, .0001)
-secant_output = secant(data, .5, 1, .0001)
+newtonRaphson_output = newtonRaphson(data, 3, .0001)
+secant_output = secant(data, 0, 1, .0001)
+fisher_output = fisher(data, 1, .0001)
+loglike_grad2(1.18e+78, data)
 ```
 
 ### c)
@@ -145,7 +164,8 @@ library(knitr)
 library(kableExtra)
 table = t(matrix(data = c("Bisection", unlist(bisection_output), 
                 "Newton Raphson", unlist(newtonRaphson_output),
-                "Secant", unlist(secant_output)), nrow = 3))
+                "Secant", unlist(secant_output),
+                "Fisher", unlist(fisher_output)), nrow = 3))
 
 kable(table, "latex", digits = 5, booktabs = TRUE, col.names = c("Method", "$\\hat\\theta$", "Iterations")) %>%
     kable_styling(latex_options = "HOLD_position")
@@ -158,6 +178,10 @@ For my convergence criteria, I used the relative convergence criterion for which
 ### e)
 
 The secant method appears to be the best, as 
+
+```{r}
+sd(table[,2])
+```
 
 ### f)
 
@@ -183,6 +207,7 @@ ggplot() +
 bisection_output = bisection(new_data, -5, 5, .0001)
 newtonRaphson_output = newtonRaphson(new_data, 1, .0001)
 secant_output = secant(new_data, 0, 1, .0001)
+fisher_output = fisher(new_data, 1, .0001)
 
 table = t(matrix(data = c("Bisection", unlist(bisection_output), 
                 "Newton Raphson", unlist(newtonRaphson_output),
@@ -199,11 +224,132 @@ kable(table, "latex", digits = 5, booktabs = TRUE, col.names = c("Method", "$\\h
 
 ### a)
 
-$$l(\beta_0, \beta_1, \beta_2) = \sum^n_{i=1}log(\frac{n!}{y_i!(n-y_i)!}(\frac{exp(\beta_0 + \beta_1x_{i1} + \beta_2x_{i2})}{1 + exp(\beta_0 + \beta_1x_{i1} + \beta_2x_{i2}) })^{y_i}(1 - \frac{exp(\beta_0 + \beta_1x_{i1} + \beta_2x_{i2})}{1 + exp(\beta_0 + \beta_1x_{i1} + \beta_2x_{i2}) })^{n-y_i}$$
+$$l(\beta_0, \beta_1, \beta_2|\boldsymbol{y}) = \sum^n_{i=1}log((\frac{exp(\beta_0 + \beta_1x_{i1} + \beta_2x_{i2})}{1 + exp(\beta_0 + \beta_1x_{i1} + \beta_2x_{i2}) })^{y_i}(1 - \frac{exp(\beta_0 + \beta_1x_{i1} + \beta_2x_{i2})}{1 + exp(\beta_0 + \beta_1x_{i1} + \beta_2x_{i2}) })^{1-y_i})$$
 
-$$= \sum^n_{i=1}[log(\frac{n!}{y_i!(n-y_i)!}) + y_i(\beta_0 + \beta_1x_{i1} + \beta_2x_{i2}) - y_ilog({1 + exp(\beta_0 + \beta_1x_{i1} + \beta_2x_{i2}) }) + (n-y_i)log(1 - \frac{exp(\beta_0 + \beta_1x_{i1} + \beta_2x_{i2})}{1 + exp(\beta_0 + \beta_1x_{i1} + \beta_2x_{i2}) })]$$
+$$= \sum^n_{i=1}[ y_i(\beta_0 + \beta_1x_{i1} + \beta_2x_{i2}) - y_ilog({1 + exp(\beta_0 + \beta_1x_{i1} + \beta_2x_{i2}) }) + (1-y_i)log(1 - \frac{exp(\beta_0 + \beta_1x_{i1} + \beta_2x_{i2})}{1 + exp(\beta_0 + \beta_1x_{i1} + \beta_2x_{i2}) })]$$
+
+$$= \sum^n_{i=1}[ y_i(\beta_0 + \beta_1x_{i1} + \beta_2x_{i2}) - y_ilog({1 + exp(\beta_0 + \beta_1x_{i1} + \beta_2x_{i2}) }) + (1-y_i)log(\frac{1}{1 + exp(\beta_0 + \beta_1x_{i1} + \beta_2x_{i2}) })]$$
+
+$$= \sum^n_{i=1}[ y_i(\beta_0 + \beta_1x_{i1} + \beta_2x_{i2}) - y_ilog({1 + exp(\beta_0 + \beta_1x_{i1} + \beta_2x_{i2}) }) + (y_i - 1)log(1 + exp(\beta_0 + \beta_1x_{i1} + \beta_2x_{i2}))]$$
+
+$$= \sum^n_{i=1}[(y_i(\beta_0 + \beta_1x_{i1} + \beta_2x_{i2}) - log(1 + exp(\beta_0 + \beta_1x_{i1} + \beta_2x_{i2}))]$$
+
+
+$$= \sum^n_{i=1}[(y_i(\boldsymbol{x_i}\boldsymbol{\beta}) - log(1 + exp(\boldsymbol{x_i}\boldsymbol{\beta}))]$$
 
 ### b
-```{r}
 
+For the Newton Raphson algorithm, we will need the Hessian and the gradient vector.
+
+$$\frac{\partial}{\partial\boldsymbol{\beta}}l(\boldsymbol{\beta}|\boldsymbol{y}) = \sum^n_{i=1}[y_i - \frac{exp(\boldsymbol{x_i}\boldsymbol{\beta})}{1 + exp(\boldsymbol{x_i}\boldsymbol{\beta})}]\boldsymbol{x_i}$$
+
+$$\frac{\partial^2}{\partial\boldsymbol{\beta}^2}l(\boldsymbol{\beta}|\boldsymbol{y}) = \sum^n_{i=1}[\frac{exp(\boldsymbol{x_i}\boldsymbol{\beta})}{(1 + exp(\boldsymbol{x_i}\boldsymbol{\beta}))^2}]\boldsymbol{x_i}\boldsymbol{x_i}^T$$
+
+
+```{Rcpp}
+#include <RcppArmadillo.h>
+// [[Rcpp::depends(RcppArmadillo)]]
+using namespace Rcpp;
+using namespace arma;
+
+namespace helper{
+  colvec loglike_grad(colvec theta, mat data) {
+      vec data_vec = data.col(0);
+      int n = data_vec.size();
+      colvec grad = colvec(3);
+      for (int i = 0; i < n; i++) {
+          double exp_part = std::exp(theta[0] + theta[1]*data(i,1) + theta[2]*data(i,2));
+          grad[0] = grad[0] + std::log(data(i,0) - (exp_part / (1 + exp_part)));  
+          grad[1] = grad[1] + std::log(data(i,0)*data(i,1) - (data(i,1)*exp_part / (1 + exp_part)));
+          grad[2] = grad[2] + std::log(data(i,0)*data(i,2) - (data(i,2)*exp_part / (1 + exp_part)));
+      }
+      return grad;
+  }
+  
+  mat hessian(colvec theta, mat data) {
+      vec data_vec = data.col(0);
+      int n = data_vec.size();
+      Rcout << n << "\n";
+
+      colvec grad = colvec(9);
+      mat toReturn = mat(3, 3);
+      for (int i = 0; i < n; i++) {
+          double exp_part = std::exp(theta[0] + theta[1]*data(i,1) + theta[2]*data(i,2));
+          Rcout << exp(theta[0] + theta[1]*data(i,1) + theta[2]*data(i,2))<< "\n";
+
+          grad[0] = grad[0] - std::log((exp_part / pow(1 + exp_part, 2)));  
+          grad[1] = grad[1] - std::log((data(i,1)*exp_part / pow(1 + exp_part, 2)));
+          grad[2] = grad[2] - std::log((data(i,2)*exp_part / pow(1 + exp_part, 2)));
+          grad[3] = grad[1];
+          grad[4] = grad[4] - std::log((pow(data(i,1), 2)*exp_part / pow(1 + exp_part, 2)));
+  
+          grad[5] = grad[5] - std::log((data(i,2)*data(i, 1)*exp_part / pow(1 + exp_part, 2))) ;
+  
+          grad[6] = grad[2];
+          grad[7] = grad[5];
+          grad[8] = grad[8] - (pow(data(i,2), 2)*exp_part / pow(1 + exp_part, 2));
+      }
+      std::copy(grad.begin(), grad.end(), toReturn.begin());
+      return toReturn;
+  }
+}
+
+
+// Newton-Raphson
+//[[Rcpp::export]]
+List newtonRaphson (mat data, colvec x, double epsilon) {
+  for (int i = 0; i < 1000; i++) {
+    // Updating equations
+    colvec grad = helper::loglike_grad(x, data);
+    mat grad2 = helper::hessian(x, data);
+    colvec h = inv(grad2)*grad;
+    Rcout << h << "\n";
+    Rcout << grad2 << "\n";
+    // Stopping criteria
+    double D = sum(abs(((x - h) - x)));
+    if (D < epsilon) {
+      return List::create(x - h, i);
+    }
+    // Updating equation
+    x = x - h;
+  }
+  return List::create(x, 1000);
+}
 ```
+
+```{Rcpp}
+#include <RcppArmadillo.h>
+// [[Rcpp::depends(RcppArmadillo)]]
+using namespace Rcpp;
+using namespace arma;
+
+
+  
+```
+
+
+```{r}
+# Create full data
+coffee = c(rep(0, 41), rep(2, 213), rep(4, 127), rep(5, 142), rep(0, 67),
+           rep(2, 211), rep(4, 133), rep(5, 76))
+
+gender = c(rep(0, 41), rep(0, 213), rep(0, 127), rep(0, 142), rep(1, 67),
+           rep(1, 211), rep(1, 133), rep(1, 76))
+
+y = c(rep(1, 9), rep(0, 41-9), rep(1, 94), rep(0, 213-94), rep(1, 53),
+rep(0, 127-53), rep(1, 60), rep(0, 142-60), rep(1, 11), rep(0, 67-11),
+rep(1, 59), rep(0, 211-59), rep(1, 53), rep(0, 133-53), rep(1, 28), rep(0,76-28))
+
+data = matrix(c(y,coffee, gender), ncol = 3)
+
+newtonRaphson(data, c(.5,.7,1), .1)
+
+loglike = function(theta) {
+  sum(data[,1]*(theta[1] + theta[2]*data[,2] + theta[3]*data[,3]) - log(1 + exp(theta[1] + theta[2]*data[,2] + theta[3]*data[,3])))
+}
+
+optim(c(.5,.5,.5), loglike)
+```
+
+
+
