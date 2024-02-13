@@ -253,16 +253,8 @@ using namespace Rcpp;
 using namespace arma;
 
 namespace helper{
-  colvec loglike_grad(colvec theta, mat data) {
-      vec data_vec = data.col(0);
-      int n = data_vec.size();
-      colvec grad = colvec(3);
-      for (int i = 0; i < n; i++) {
-          double exp_part = std::exp(theta[0] + theta[1]*data(i,1) + theta[2]*data(i,2));
-          grad[0] = grad[0] + std::log(data(i,0) - (exp_part / (1 + exp_part)));  
-          grad[1] = grad[1] + std::log(data(i,0)*data(i,1) - (data(i,1)*exp_part / (1 + exp_part)));
-          grad[2] = grad[2] + std::log(data(i,0)*data(i,2) - (data(i,2)*exp_part / (1 + exp_part)));
-      }
+  colvec loglike_grad(colvec theta, mat data, colvec y) {
+      colvec grad = trans(x)*(y - (exp(x*theta) / (1 + exp(x*theta))))
       return grad;
   }
   
@@ -323,8 +315,20 @@ List newtonRaphson (mat data, colvec x, double epsilon) {
 using namespace Rcpp;
 using namespace arma;
 
+//[[Rcpp::export]]
+colvec loglike_grad(colvec theta, mat x, colvec y) {
+      colvec grad = trans(x)*(y - (exp(x*theta) / (1 + exp(x*theta))));
+      return grad;
+}
 
-  
+
+//[[Rcpp::export]]
+mat hessian(colvec theta, mat x, colvec y) {
+      mat grad = trans(x)*(-(exp(x*theta) / pow(1 + exp(x*theta), 2)))*x;
+      return grad;
+}
+
+
 ```
 
 
@@ -340,15 +344,12 @@ y = c(rep(1, 9), rep(0, 41-9), rep(1, 94), rep(0, 213-94), rep(1, 53),
 rep(0, 127-53), rep(1, 60), rep(0, 142-60), rep(1, 11), rep(0, 67-11),
 rep(1, 59), rep(0, 211-59), rep(1, 53), rep(0, 133-53), rep(1, 28), rep(0,76-28))
 
-data = matrix(c(y,coffee, gender), ncol = 3)
+data = matrix(c(rep(1, 1010),coffee, gender), ncol = 3)
 
-newtonRaphson(data, c(.5,.7,1), .1)
 
-loglike = function(theta) {
-  sum(data[,1]*(theta[1] + theta[2]*data[,2] + theta[3]*data[,3]) - log(1 + exp(theta[1] + theta[2]*data[,2] + theta[3]*data[,3])))
-}
+loglike_grad(c(0,0,0), data, y)
+hessian(c(0,0,0), data, y)
 
-optim(c(.5,.5,.5), loglike)
 ```
 
 
